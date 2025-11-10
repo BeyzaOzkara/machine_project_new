@@ -36,8 +36,8 @@ export default function AssignmentManagement({ type }: AssignmentManagementProps
           supabase.from('profiles').select('*').eq('role', 'team_leader').order('full_name'),
           supabase.from('department_leaders').select('*'),
         ]);
-
         setDepartments(depts || []);
+        console.log('', depts);
         setUsers(usersData || []);
         setAssignments(assigns || []);
       } else {

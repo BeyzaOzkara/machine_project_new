@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import { Users, Plus, X, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../lib/database.types';
+import { useAuth } from '../contexts/AuthContext';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 
 export default function UserManagement() {
+  const { profile } = useAuth();
   const [users, setUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -25,10 +27,19 @@ export default function UserManagement() {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('full_name');
+      // const { data, error } = await supabase
+      //   .from('profiles')
+      //   .select('*')
+      //   .order('full_name');
+
+      // if (error) throw error;
+      let query = supabase.from('profiles').select('*').order('full_name');
+
+      if (profile?.role === 'team_leader') {
+        query = query.eq('role', 'operator');
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setUsers(data || []);
@@ -80,6 +91,9 @@ export default function UserManagement() {
   };
 
   const handleRoleChange = async (userId: string, newRole: Profile['role']) => {
+    if (profile?.role === 'team_leader') {
+      return;
+    }
     try {
       const { error } = await supabase
         .from('profiles')
@@ -231,7 +245,28 @@ export default function UserManagement() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Rol
                 </label>
+                {profile?.role === 'team_leader' ? (
+                <>
+                  {/* Sunucuya 'operator' gitsin */}
+                  <input type="hidden" value="operator" />
+                  <div className="px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-700">
+                    Operatör
+                  </div>
+                </>
+              ) : (
                 <select
+                  value={formData.role}
+                  onChange={(e) =>
+                    setFormData({ ...formData, role: e.target.value as Profile['role'] })
+                  }
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
+                >
+                  <option value="operator">Operatör</option>
+                  <option value="team_leader">Bölüm Sorumlusu</option>
+                  <option value="admin">Admin</option>
+                </select>
+              )}
+                {/* <select
                   value={formData.role}
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as Profile['role'] })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-gray-900 focus:border-transparent"
@@ -239,7 +274,7 @@ export default function UserManagement() {
                   <option value="operator">Operatör</option>
                   <option value="team_leader">Bölüm Sorumlusu</option>
                   <option value="admin">Admin</option>
-                </select>
+                </select> */}
               </div>
 
               {error && (

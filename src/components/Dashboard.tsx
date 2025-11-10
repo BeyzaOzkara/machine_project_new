@@ -185,7 +185,14 @@ export default function Dashboard() {
                 <AssignmentManagement type="department" />
               </>
             )}
-            {(isAdmin || isTeamLeader) && <AssignmentManagement type="machine" />}
+            {(isAdmin || isTeamLeader) && (
+              <>
+                <UserManagement />
+                <MachineManagement />
+                <AssignmentManagement type="machine" />
+              </>
+            )}
+            {/* {(isAdmin || isTeamLeader) && <AssignmentManagement type="machine" />} */}
           </div>
         )}
       </main>

@@ -20,9 +20,16 @@ export default function MachineManagement() {
   });
   const { user, profile } = useAuth();
 
+  // useEffect(() => {
+  //   loadData();
+  // }, []);
+  
+  const [teamLeaderDepartments, setTeamLeaderDepartments] = useState<string[]>([]); // NEW
   useEffect(() => {
     loadData();
-  }, []);
+  // profile değiştiğinde erişim kapsamı da değişebilir
+  }, [profile?.role, user?.id]);
+  
 
   const loadData = async () => {
     try {
@@ -31,30 +38,69 @@ export default function MachineManagement() {
       const { data: depts } = await supabase.from('departments').select('*').order('name');
       setDepartments(depts || []);
 
-      let machineQuery = supabase.from('machines').select('*').order('machine_code');
-
+      // let machineQuery = supabase.from('machines').select('*').order('machine_code');
       if (profile?.role === 'team_leader') {
         const { data: myDepts } = await supabase
           .from('department_leaders')
           .select('department_id')
           .eq('user_id', user?.id);
 
-        const deptIds = myDepts?.map((d) => d.department_id) || [];
+        const deptIds = myDepts?.map(d => d.department_id) || [];
+        setTeamLeaderDepartments(deptIds);
+
+        // Makineleri sadece kendi bölümlerine göre göster
+        let machineQuery = supabase.from('machines').select('*').order('machine_code');
         if (deptIds.length > 0) {
           machineQuery = machineQuery.in('department_id', deptIds);
         } else {
+          // Hiç bölümü yoksa boş sonuç
           machineQuery = machineQuery.eq('id', '00000000-0000-0000-0000-000000000000');
         }
+        const { data: machinesData } = await machineQuery;
+        setMachines(machinesData || []);
+      } else {
+        // Admin vb. tüm makineler
+        const { data: machinesData } = await supabase
+          .from('machines')
+          .select('*')
+          .order('machine_code');
+        setMachines(machinesData || []);
       }
+      // if (profile?.role === 'team_leader') {
+      //   const { data: myDepts } = await supabase
+      //     .from('department_leaders')
+      //     .select('department_id')
+      //     .eq('user_id', user?.id);
 
-      const { data: machinesData } = await machineQuery;
-      setMachines(machinesData || []);
+      //   const deptIds = myDepts?.map((d) => d.department_id) || [];
+      //   if (deptIds.length > 0) {
+      //     machineQuery = machineQuery.in('department_id', deptIds);
+      //   } else {
+      //     machineQuery = machineQuery.eq('id', '00000000-0000-0000-0000-000000000000');
+      //   }
+      // }
+
+      // const { data: machinesData } = await machineQuery;
+      // setMachines(machinesData || []);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
     }
   };
+
+  // --- Bölüm listesi: admin tümünü görür, team_leader sadece kendi bölümlerini ---
+  const availableDepartments: Department[] =
+    profile?.role === 'admin'
+      ? departments
+      : departments.filter(dept => teamLeaderDepartments.includes(dept.id));
+
+  // Modal açıldığında ve yalnızca 1 uygun bölüm varsa otomatik seç
+  useEffect(() => {
+    if (showModal && profile?.role === 'team_leader' && availableDepartments.length === 1) {
+      setFormData(prev => ({ ...prev, department_id: availableDepartments[0].id }));
+    }
+  }, [showModal, profile?.role, availableDepartments]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,6 +110,7 @@ export default function MachineManagement() {
         machine_code: formData.machine_code,
         machine_name: formData.machine_name,
         description: formData.description,
+        current_status: 'Beklemede',
         department_id: formData.department_id || null,
       });
 
@@ -99,12 +146,31 @@ export default function MachineManagement() {
     return departments.find((d) => d.id === deptId)?.name || 'Unknown';
   };
 
-  const availableDepartments =
-    profile?.role === 'admin'
-      ? departments
-      : departments.filter((dept) =>
-          machines.some((m) => m.department_id === dept.id)
-        );
+
+  // useEffect(() => {
+  //   if (profile?.role === 'team_leader') {
+  //     loadTeamLeaderDepartments();
+  //   }
+  // }, [profile?.role, user?.id]);
+
+  // const loadTeamLeaderDepartments = async () => {
+  //   try {
+  //     const { data } = await supabase
+  //       .from('department_leaders')
+  //       .select('department_id')
+  //       .eq('user_id', user?.id);
+
+  //     setTeamLeaderDepartments(data?.map(d => d.department_id) || []);
+  //   } catch (error) {
+  //     console.error('Error loading team leader departments:', error);
+  //   }
+  // };
+
+    // profile?.role === 'admin'
+    //   ? departments
+    //   : departments.filter((dept) =>
+    //       machines.some((m) => m.department_id === dept.id)
+    //     );
 
   if (loading) {
     return (
@@ -123,11 +189,19 @@ export default function MachineManagement() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+          disabled={profile?.role === 'team_leader' && availableDepartments.length === 0}
+          className="flex items-center space-x-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Plus className="w-4 h-4" />
           <span>Makine Ekle</span>
         </button>
+        {/* <button
+          onClick={() => setShowModal(true)}
+          className="flex items-center space-x-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Makine Ekle</span>
+        </button> */}
       </div>
 
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
