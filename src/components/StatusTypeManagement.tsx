@@ -151,14 +151,14 @@ export default function StatusTypeManagement() {
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <Tag className="w-6 h-6 text-gray-700" />
-          <h2 className="text-xl font-bold text-gray-900">Status Types</h2>
+          <h2 className="text-xl font-bold text-gray-900">Durum Türleri</h2>
         </div>
         <button
           onClick={() => setShowModal(true)}
           className="flex items-center space-x-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
         >
           <Plus className="w-4 h-4" />
-          <span>Add Status Type</span>
+          <span>Durum Türü Ekle</span>
         </button>
       </div>
 
@@ -178,7 +178,7 @@ export default function StatusTypeManagement() {
                     {status.name}
                   </div>
                   {status.is_default && (
-                    <span className="ml-2 text-xs text-gray-500">(Default)</span>
+                    <span className="ml-2 text-xs text-gray-500">(Varsayılan)</span>
                   )}
                   {!status.is_active && (
                     <span className="ml-2 text-xs text-red-600">(Inactive)</span>
@@ -222,7 +222,7 @@ export default function StatusTypeManagement() {
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h3 className="text-xl font-bold text-gray-900">
-                {editingStatus ? 'Edit Status Type' : 'Add Status Type'}
+                {editingStatus ? 'Durum Türü Güncelle' : 'Durum Türü Ekle'}
               </h3>
               <button onClick={closeModal} className="text-gray-400 hover:text-gray-600">
                 <X className="w-6 h-6" />
@@ -232,7 +232,7 @@ export default function StatusTypeManagement() {
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Status Name
+                  Durum Adı
                 </label>
                 <input
                   type="text"
@@ -246,7 +246,7 @@ export default function StatusTypeManagement() {
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Color
+                  Renk
                 </label>
                 <div className="grid grid-cols-4 gap-2">
                   {colorOptions.map((color) => (
@@ -279,13 +279,13 @@ export default function StatusTypeManagement() {
                   onClick={closeModal}
                   className="flex-1 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
-                  Cancel
+                  İptal
                 </button>
                 <button
                   type="submit"
                   className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
                 >
-                  {editingStatus ? 'Update' : 'Add'} Status
+                  Durum {editingStatus ? 'Güncelle' : 'Ekle'} 
                 </button>
               </div>
             </form>

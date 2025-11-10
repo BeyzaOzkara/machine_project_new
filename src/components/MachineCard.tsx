@@ -9,6 +9,7 @@ interface MachineCardProps {
   onClick: () => void;
   canUpdate: boolean;
   statusColor: string;
+  maxLines?: number; // NEW
 }
 
 const colorMap: Record<string, { color: string; textColor: string; bgColor: string; borderColor: string }> = {
@@ -62,10 +63,17 @@ const colorMap: Record<string, { color: string; textColor: string; bgColor: stri
   },
 };
 
-export default function MachineCard({ machine, onClick, canUpdate, statusColor }: MachineCardProps) {
+export default function MachineCard({ machine, onClick, canUpdate, statusColor, maxLines=2, }: MachineCardProps) {
   const { t } = useTranslation();
   const config = colorMap[statusColor] || colorMap.gray;
   const lastUpdate = new Date(machine.last_updated_at);
+
+  const clampStyle: React.CSSProperties = { // NEW
+    display: '-webkit-box',
+    WebkitLineClamp: maxLines,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  };
 
   return (
     <div
@@ -83,7 +91,10 @@ export default function MachineCard({ machine, onClick, canUpdate, statusColor }
       </div>
 
       {machine.description && (
-        <p className="text-xs text-gray-500 mb-3 line-clamp-2">{machine.description}</p>
+        <p className="text-xs text-gray-500 mb-3" style={clampStyle}>
+          {machine.description}
+        </p>
+        // <p className="text-xs text-gray-500 mb-3 line-clamp-2">{machine.description}</p>
       )}
 
       <div className="flex items-center justify-between">
