@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FileText, Calendar, Filter, Download } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../lib/database.types';
@@ -29,6 +29,18 @@ interface DepartmentReport {
   machineReports: MachineReport[];
 }
 
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+const formatLocalDateTimeForInput = (date: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`; // YYYY-MM-DDTHH:MM
+};
+
 export default function ReportsPage() {
   const { profile, user } = useAuth();
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -36,113 +48,106 @@ export default function ReportsPage() {
   const [statusTypes, setStatusTypes] = useState<StatusType[]>([]);
   const [loading, setLoading] = useState(false);
   const [teamLeaderDepartments, setTeamLeaderDepartments] = useState<string[]>([]);
-
-  const [filters, setFilters] = useState({
-    departmentId: 'all',
-    machineId: 'all',
-    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
-    endDate: new Date().toISOString().slice(0, 16),
-  });
-
   const [report, setReport] = useState<DepartmentReport | null>(null);
 
+  const [filters, setFilters] = useState(() => {
+    const now = new Date();
+    const oneWeekAgo = new Date(now.getTime() - ONE_WEEK_MS);
+    return {
+      departmentId: 'all',
+      machineId: 'all',
+      startDate: formatLocalDateTimeForInput(oneWeekAgo),
+      endDate: formatLocalDateTimeForInput(now),
+    };
+  });
+
+  // ---- derived values ----
+
+  const effectiveEndTime = useMemo(() => {
+    const end = new Date(filters.endDate).getTime();
+    const now = Date.now();
+    return Math.min(end, now); // geleceğe gitmesin
+  }, [filters.endDate]);
+
+  const availableDepartments = useMemo(
+    () =>
+      profile?.role === 'team_leader'
+        ? departments.filter((d) => teamLeaderDepartments.includes(d.id))
+        : departments,
+    [departments, profile?.role, teamLeaderDepartments]
+  );
+
+  const availableMachines = useMemo(() => {
+    const source =
+      profile?.role === 'team_leader'
+        ? machines.filter((m) => m.department_id && teamLeaderDepartments.includes(m.department_id))
+        : machines;
+
+    if (filters.departmentId !== 'all') {
+      return source.filter((m) => m.department_id === filters.departmentId);
+    }
+    return source;
+  }, [machines, filters.departmentId, profile?.role, teamLeaderDepartments]);
+
+  // ---- initial load ----
+
   useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        await Promise.all([
+          supabase.from('departments').select('*').order('name').then(({ data }) => {
+            setDepartments(data || []);
+          }),
+          supabase.from('machines').select('*').order('machine_code').then(({ data }) => {
+            setMachines(data || []);
+          }),
+          supabase
+            .from('status_types')
+            .select('*')
+            .eq('is_active', true)
+            .order('display_order')
+            .then(({ data }) => {
+              setStatusTypes(data || []);
+            }),
+          (async () => {
+            if (profile?.role !== 'team_leader' || !user?.id) return;
+            const { data } = await supabase
+              .from('department_leaders')
+              .select('department_id')
+              .eq('user_id', user.id);
+            setTeamLeaderDepartments(data?.map((d) => d.department_id) || []);
+          })(),
+        ]);
+      } catch (err) {
+        console.error('Error loading initial data:', err);
+      }
+    };
+
     loadInitialData();
   }, [profile?.role, user?.id]);
 
-  const loadInitialData = async () => {
-    try {
-      await Promise.all([
-        loadDepartments(),
-        loadMachines(),
-        loadStatusTypes(),
-        loadTeamLeaderDepartments(),
-      ]);
-    } catch (error) {
-      console.error('Error loading initial data:', error);
-    }
-  };
-
-  const loadTeamLeaderDepartments = async () => {
-    if (profile?.role !== 'team_leader' || !user?.id) return;
-
-    try {
-      const { data } = await supabase
-        .from('department_leaders')
-        .select('department_id')
-        .eq('user_id', user.id);
-
-      setTeamLeaderDepartments(data?.map(d => d.department_id) || []);
-    } catch (error) {
-      console.error('Error loading team leader departments:', error);
-    }
-  };
-
-  const loadDepartments = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('departments')
-        .select('*')
-        .order('name');
-
-      if (error) throw error;
-      setDepartments(data || []);
-    } catch (error) {
-      console.error('Error loading departments:', error);
-    }
-  };
-
-  const loadMachines = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('machines')
-        .select('*')
-        .order('machine_code');
-
-      if (error) throw error;
-      setMachines(data || []);
-    } catch (error) {
-      console.error('Error loading machines:', error);
-    }
-  };
-
-  const loadStatusTypes = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('status_types')
-        .select('*')
-        .eq('is_active', true)
-        .order('display_order');
-
-      if (error) throw error;
-      setStatusTypes(data || []);
-    } catch (error) {
-      console.error('Error loading status types:', error);
-    }
-  };
+  // ---- report generation ----
 
   const generateReport = async () => {
     setLoading(true);
     try {
       const startTime = new Date(filters.startDate).getTime();
-      const endTime = new Date(filters.endDate).getTime();
-    //   const totalRangeTime = endTime - startTime;
-        const now = Date.now();
-        const effectiveEndTime = Math.min(endTime, now);
+      const endTime = effectiveEndTime;
+
       let targetMachines: Machine[] = [];
 
       if (filters.machineId !== 'all') {
-        const machine = machines.find(m => m.id === filters.machineId);
+        const machine = machines.find((m) => m.id === filters.machineId);
         if (machine) targetMachines = [machine];
       } else if (filters.departmentId !== 'all') {
-        targetMachines = machines.filter(m => m.department_id === filters.departmentId);
+        targetMachines = machines.filter((m) => m.department_id === filters.departmentId);
       } else {
         targetMachines = machines;
       }
 
       if (profile?.role === 'team_leader') {
-        targetMachines = targetMachines.filter(m =>
-          m.department_id && teamLeaderDepartments.includes(m.department_id)
+        targetMachines = targetMachines.filter(
+          (m) => m.department_id && teamLeaderDepartments.includes(m.department_id)
         );
       }
 
@@ -160,48 +165,35 @@ export default function ReportsPage() {
 
         if (error) throw error;
 
-        const statusDurations: Record<string, number> = {};
-        const history = (historyData || []).filter(h =>
-          new Date(h.changed_at).getTime() >= machineCreatedAt
+        const history = (historyData || []).filter(
+          (h) => new Date(h.changed_at).getTime() >= machineCreatedAt
         );
 
         const reportStartTime = Math.max(startTime, machineCreatedAt);
 
-        if (reportStartTime >= effectiveEndTime) { //endTime) {
-          machineReports.push({
-            machineId: machine.id,
-            machineCode: machine.machine_code,
-            machineName: machine.machine_name,
-            statusDurations: [],
-            totalTime: 0,
-          });
+        if (reportStartTime >= endTime || history.length === 0) {
           continue;
         }
 
-        if (history.length === 0) {
-          continue;
-        }
-
-        const relevantHistory = history.filter(h => {
-          const changeTime = new Date(h.changed_at).getTime();
-          return changeTime < effectiveEndTime; //endTime;
-        });
+        const relevantHistory = history.filter(
+          (h) => new Date(h.changed_at).getTime() < endTime
+        );
 
         if (relevantHistory.length === 0) {
           continue;
         }
 
+        const statusDurations: Record<string, number> = {};
         let currentPeriodStart = reportStartTime;
         let currentStatus: string | null = null;
 
         const firstChangeTime = new Date(relevantHistory[0].changed_at).getTime();
         if (firstChangeTime > reportStartTime) {
-          const beforeFirstChange = history.find(h =>
-            new Date(h.changed_at).getTime() <= reportStartTime
+          const beforeFirstChange = history.find(
+            (h) => new Date(h.changed_at).getTime() <= reportStartTime
           );
-
           if (beforeFirstChange) {
-            currentStatus = beforeFirstChange.status; //new_status;
+            currentStatus = beforeFirstChange.status;
           }
         }
 
@@ -210,29 +202,39 @@ export default function ReportsPage() {
           const changeTime = new Date(current.changed_at).getTime();
 
           if (currentStatus && changeTime > currentPeriodStart) {
-            const periodEnd = Math.min(changeTime, effectiveEndTime); // endTime);
+            const periodEnd = Math.min(changeTime, endTime);
             const duration = periodEnd - currentPeriodStart;
 
             if (duration > 0) {
-              statusDurations[currentStatus] = (statusDurations[currentStatus] || 0) + duration;
-              departmentStatusTotals[currentStatus] = (departmentStatusTotals[currentStatus] || 0) + duration;
+              statusDurations[currentStatus] =
+                (statusDurations[currentStatus] || 0) + duration;
+              departmentStatusTotals[currentStatus] =
+                (departmentStatusTotals[currentStatus] || 0) + duration;
             }
           }
 
-          currentStatus = current.status; //new_status;
+          currentStatus = current.status;
           currentPeriodStart = Math.max(changeTime, reportStartTime);
         }
 
-        if (currentStatus && currentPeriodStart < effectiveEndTime) { //endTime) {
-          const duration = effectiveEndTime - currentPeriodStart; //endTime - currentPeriodStart;
+        if (currentStatus && currentPeriodStart < endTime) {
+          const duration = endTime - currentPeriodStart;
           if (duration > 0) {
-            statusDurations[currentStatus] = (statusDurations[currentStatus] || 0) + duration;
-            departmentStatusTotals[currentStatus] = (departmentStatusTotals[currentStatus] || 0) + duration;
+            statusDurations[currentStatus] =
+              (statusDurations[currentStatus] || 0) + duration;
+            departmentStatusTotals[currentStatus] =
+              (departmentStatusTotals[currentStatus] || 0) + duration;
           }
         }
 
-        const machineTotal = Object.values(statusDurations).reduce((sum, dur) => sum + dur, 0);
-        const statusDurationArray: StatusDuration[] = Object.entries(statusDurations)
+        const machineTotal = Object.values(statusDurations).reduce(
+          (sum, dur) => sum + dur,
+          0
+        );
+
+        const statusDurationArray: StatusDuration[] = Object.entries(
+          statusDurations
+        )
           .map(([status, duration]) => ({
             status,
             duration,
@@ -249,8 +251,13 @@ export default function ReportsPage() {
         });
       }
 
-      const departmentTotal = Object.values(departmentStatusTotals).reduce((sum, dur) => sum + dur, 0);
-      const departmentStatusArray: StatusDuration[] = Object.entries(departmentStatusTotals)
+      const departmentTotal = Object.values(departmentStatusTotals).reduce(
+        (sum, dur) => sum + dur,
+        0
+      );
+      const departmentStatusArray: StatusDuration[] = Object.entries(
+        departmentStatusTotals
+      )
         .map(([status, duration]) => ({
           status,
           duration,
@@ -277,10 +284,14 @@ export default function ReportsPage() {
   };
 
   const getStatusColor = (statusName: string) => {
-    const statusType = statusTypes.find(st => st.name === statusName);
-    if (!statusType) return { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-200' };
+    const statusType = statusTypes.find((st) => st.name === statusName);
+    if (!statusType)
+      return { bg: 'bg-gray-100', text: 'text-gray-800', border: 'border-gray-200' };
 
-    const colorMap: Record<string, { bg: string; text: string; border: string }> = {
+    const colorMap: Record<
+      string,
+      { bg: string; text: string; border: string }
+    > = {
       green: { bg: 'bg-green-100', text: 'text-green-800', border: 'border-green-200' },
       blue: { bg: 'bg-blue-100', text: 'text-blue-800', border: 'border-blue-200' },
       yellow: { bg: 'bg-yellow-100', text: 'text-yellow-800', border: 'border-yellow-200' },
@@ -294,21 +305,7 @@ export default function ReportsPage() {
     return colorMap[statusType.color] || colorMap.gray;
   };
 
-  const availableDepartments = profile?.role === 'team_leader'
-    ? departments.filter(d => teamLeaderDepartments.includes(d.id))
-    : departments;
-
-  const availableMachines = filters.departmentId !== 'all'
-    ? machines.filter(m => m.department_id === filters.departmentId)
-    : profile?.role === 'team_leader'
-    ? machines.filter(m => m.department_id && teamLeaderDepartments.includes(m.department_id))
-    : machines;
-
-  const endForDisplay = () => {
-    const end = new Date(filters.endDate).getTime();
-    const now = Date.now();
-    return new Date(Math.min(end, now)).toLocaleString();
-    };
+  const endForDisplay = () => new Date(effectiveEndTime).toLocaleString();
 
   return (
     <div className="space-y-6">
@@ -412,7 +409,7 @@ export default function ReportsPage() {
 
             <div className="mb-6">
               <p className="text-sm text-gray-600">
-                Report Period: {new Date(filters.startDate).toLocaleString()} - {endForDisplay()}
+                Rapor Dönemi: {new Date(filters.startDate).toLocaleString()} - {endForDisplay()}
                 {/* Rapor Dönemi: {new Date(filters.startDate).toLocaleString()} - {new Date(filters.endDate).toLocaleString()} */}
               </p>
               <p className="text-sm text-gray-600 mt-1">
